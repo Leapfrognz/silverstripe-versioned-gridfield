@@ -1,3 +1,2 @@
 <?php
-
-Object::add_extension("ModelAdmin", "VersionedModelAdmin");
+Object::add_extension("ModelAdmin", "icecaster\VersionedModelAdmin");
