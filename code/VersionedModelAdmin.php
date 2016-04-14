@@ -17,16 +17,22 @@ class VersionedModelAdmin extends \Extension {
 	}
 
 	function updateEditForm($form) {
+
+
 		$fieldList = $form->Fields();
 
 		foreach($fieldList as $field) {
-			if($field instanceof GridField) {
+			if($field instanceof \GridField) {
+
+
+
 				$class = $field->getList()->dataClass();
 				if($class::has_extension("Versioned")) {
 					$config = $field->getConfig();
+
 					$config->removeComponentsByType('GridFieldDeleteAction')
 						->removeComponentsByType('GridFieldDetailForm')
-						->addComponents(new VersionedGridFieldDetailForm());
+						->addComponents(new \VersionedGridFieldDetailForm());
 					$field->setConfig($config);
 				}
 			}
