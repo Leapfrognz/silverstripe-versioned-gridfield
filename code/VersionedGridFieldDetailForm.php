@@ -1,26 +1,52 @@
 <?php
-namespace Icecaster;
-
 /**
  * VersionedGridFieldDetailForm & VersionedGridFieldDetailForm_ItemRequest
  * Allows managing versioned objects through gridfield.
- * See README for details
+ * See README for details 
  *
  * @author Tim Klein, Dodat Ltd <tim[at]dodat[dot]co[dot]nz>
  */
 
-class VersionedGridFieldDetailForm extends \GridFieldDetailForm {
+class VersionedGridFieldDetailForm extends GridFieldDetailForm {
 
+	public function handleItem($gridField, $request) {
+		$controller = $gridField->getForm()->Controller();
+
+		//resetting datalist on gridfield to ensure edited object is in list
+		//this was causing errors when the modified object was no longer in the results
+		$list = $gridField->getList();
+		$list = $list->setDataQuery(new DataQuery($list->dataClass()));
+
+		if(is_numeric($request->param('ID'))) {
+			$record = $list->byId($request->param("ID"));
+		} else {
+			$record = Object::create($gridField->getModelClass());	
+		}
+
+		$class = $this->getItemRequestClass();
+
+		$handler = Object::create($class, $gridField, $this, $record, $controller, $this->name);
+		$handler->setTemplate($this->template);
+
+		// if no validator has been set on the GridField and the record has a
+		// CMS validator, use that.
+		if(!$this->getValidator() && method_exists($record, 'getCMSValidator')) {
+			$this->setValidator($record->getCMSValidator());
+		}
+
+		return $handler->handleRequest($request, DataModel::inst());
+	}
+	
 }
 
-class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_ItemRequest {
+class VersionedGridFieldDetailForm_ItemRequest extends GridFieldDetailForm_ItemRequest {
 
 	private static $allowed_actions = array(
 		'edit',
 		'view',
 		'ItemEditForm'
 	);
-
+	
 	function isNew() {
 		/**
 		 * This check was a problem for a self-hosted site, and may indicate a
@@ -47,7 +73,7 @@ class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_Item
 
 		$record = $this->record;
 
-		return (DB::query("SELECT \"ID\" FROM \"{$this->baseTable()}_Live\" WHERE \"ID\" = $record->ID")->value())
+		return Versioned::get_by_stage($this->baseTable(), 'Live')->byID($record->ID)
 			? true
 			: false;
 	}
@@ -81,83 +107,89 @@ class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_Item
 	function canPreview() {
 		$can = false;
 		$can = in_array('CMSPreviewable', class_implements($this->record));
-		if(method_exists("canPreview", $this->record)) {
+		if(method_exists($this->record, "canPreview")) {
 			$can = $this->record->canPreview();
 		}
-
 		return ($can && !$this->isNew());
 	}
+	
 
-	function getCMSActions() {
+	public function getCMSActions() {
 
 		$record = $this->record;
 		$classname = $record->class;
 
-		$minorActions = CompositeField::create()->setTag('fieldset')->addExtraClass('ss-ui-buttonset');
-		$actions = new FieldList($minorActions);
+		$minorActions = CompositeField::create()
+			->setTag('fieldset')
+			->addExtraClass('ss-ui-buttonset');
 
+		$actions = new FieldList($minorActions);
 
 		$this->IsDeletedFromStage = $this->getIsDeletedFromStage();
 		$this->ExistsOnLive = $this->getExistsOnLive();
 
 		if($this->isPublished() && $this->canPublish() && !$this->IsDeletedFromStage && $this->canDeleteFromLive()) {
-			// "unpublish"
 			$minorActions->push(
-				FormAction::create('doUnpublish', _t('SiteTree.BUTTONUNPUBLISH', 'Unpublish'), 'delete')
-					->setUseButtonTag(true)->setDescription("Remove this {$classname} from the published site")
-					->addExtraClass('ss-ui-action-destructive')->setAttribute('data-icon', 'unpublish')
+				FormAction::create('doUnpublish', 'Unpublish')
+					->setDescription("Remove this {$classname} from the published site")
+					->addExtraClass('ss-ui-action-destructive')
+					->setAttribute('data-icon', 'unpublish')
+					->setUseButtonTag(true)
 			);
 		}
 
 		if($this->stagesDiffer('Stage', 'Live') && !$this->IsDeletedFromStage) {
 			if($this->isPublished() && $this->canEdit())	{
-				// "rollback"
 				$minorActions->push(
-					FormAction::create('doRollback', 'Cancel draft changes', 'delete')
-						->setUseButtonTag(true)->setDescription(_t('SiteTree.BUTTONCANCELDRAFTDESC', 'Delete your draft and revert to the currently published page'))
+					FormAction::create('doRollback', 'Cancel draft changes')
+						->setUseButtonTag(true)
 				);
 			}
 		}
 
 		if($this->canEdit()) {
 			if($this->canDelete() && !$this->isNew() && !$this->isPublished()) {
-				// "delete"
 				$minorActions->push(
-					FormAction::create('doDelete', 'Delete')->addExtraClass('delete ss-ui-action-destructive')
-						->setAttribute('data-icon', 'decline')->setUseButtonTag(true)
+					FormAction::create('doDelete', 'Delete')
+						->addExtraClass('delete ss-ui-action-destructive')
+						->setAttribute('data-icon', 'decline')
+						->setUseButtonTag(true)
 				);
 			}
-
-			// "save"
+		
 			$minorActions->push(
-				FormAction::create('doSave',_t('CMSMain.SAVEDRAFT','Save Draft'))->setAttribute('data-icon', 'addpage')->setUseButtonTag(true)
+				FormAction::create('doSave', 'Save Draft')
+					->setAttribute('data-icon', 'addpage')
+					->setUseButtonTag(true)
 			);
 		}
 
 		if($this->canPublish() && !$this->IsDeletedFromStage) {
-			// "publish"
 			$actions->push(
-				FormAction::create('doPublish', _t('SiteTree.BUTTONSAVEPUBLISH', 'Save & Publish'))
-					->setUseButtonTag(true)->addExtraClass('ss-ui-action-constructive')->setAttribute('data-icon', 'accept')
+				FormAction::create('doPublish', 'Save & Publish')
+					->addExtraClass('ss-ui-action-constructive')
+					->setAttribute('data-icon', 'accept')
+					->setUseButtonTag(true)
 			);
 		}
 		// This is a bit hacky, however from what I understand ModelAdmin / GridField dont use the SilverStripe navigator, this will do for now just fine.
 		if($this->canPreview()) {
-		  //Ensure Link method is defined & non-null before allowing preview
-		  if(method_exists($this->record, 'Link') && $this->record->Link()){
-			$actions->push(
-				LiteralField::create("preview",
-					sprintf("<a href=\"%s\" class=\"ss-ui-button\" data-icon=\"preview\" target=\"_blank\">%s &raquo;</a>",
-						$this->record->Link()."?stage=Stage",
-						_t('LeftAndMain.PreviewButton', 'Preview')
+			//Ensure Link method is defined & non-null before allowing preview
+			if(method_exists($this->record, 'Link') && $this->record->Link()){
+				$actions->push(
+					LiteralField::create('preview',
+						sprintf("<a href=\"%s\" class=\"ss-ui-button\" data-icon=\"preview\" target=\"_blank\">%s &raquo;</a>",
+							$this->record->Link()."?stage=Stage", 'Preview'
+						)
 					)
-				)
-			);
-		}
+				);	
+			}
 		}
 
+		$this->extend('updateCMSActions', $actions);
 		return $actions;
 	}
+
 
 	public function ItemEditForm() {
 		$form = parent::ItemEditForm();
@@ -178,14 +210,21 @@ class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_Item
 		$form->saveInto($record);
 		$record->write();
 		$this->gridField->getList()->add($record);
-		$record->publish("Stage", "Live");
+
+		// use doPublish if it's defined on the object (like SiteTree) which
+		// includes extension calls.
+		if($record->hasMethod('doPublish')) {
+			$record->doPublish();
+		} else {
+			$record->publish('Stage', 'Live');
+		}
 
 		$message = sprintf(
 			_t('GridFieldDetailForm.Published', 'Published %s %s'),
 			$this->record->singular_name(),
-			'"'.htmlspecialchars($this->record->Title, ENT_QUOTES).'"'
+			'"'.Convert::raw2xml($this->record->Title).'"'
 		);
-
+		
 		$form->sessionMessage($message, 'good');
 		return $this->edit(Controller::curr()->getRequest());
 	}
@@ -197,32 +236,36 @@ class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_Item
 		if($record && !$record->canPublish())
 			return Security::permissionFailure($this);
 
+		$record->invokeWithExtensions('onBeforeUnpublish', $record);
+		
 		$origStage = Versioned::current_stage();
-		Versioned::reading_stage('Live');
+		$record->deleteFromStage("Live");
+		Versioned::reading_stage($origStage);
 
-		// This way our ID won't be unset
-		$clone = clone $record;
-		$clone->delete();
+		$record->invokeWithExtensions('onAfterUnpublish', $record);
+
 		$message = sprintf(
 			'Unpublished %s %s',
-			$this->record->singular_name(),
-			'"'.htmlspecialchars($this->record->Title, ENT_QUOTES).'"'
+			$record->singular_name(),
+			'"'.Convert::raw2xml($record->Title).'"'
 		);
 		$form->sessionMessage($message, 'good');
 		return $this->edit(Controller::curr()->getRequest());
 	}
+	
 
-
-	function doRollback($data, $form) {
+	public function doRollback($data, $form) {
 		$record = $this->record;
-
-		//$clone = clone $record;
+		$record->invokeWithExtensions('onBeforeRollback', $record);
+		
 		$record->publish("Live", "Stage", false);
-		//$record->writeWithoutVersion();
-		$message = "Cancelled Draft changes for \"".htmlspecialchars($record->Title, ENT_QUOTES)."\"";
+		
+		$record->invokeWithExtensions('onAfterRollback', $record);
 
+		$message = "Cancelled Draft changes for \"".Convert::raw2xml($record->Title)."\"";
+		
 		$form->sessionMessage($message, 'good');
-		return Controller::curr()->redirect($this->Link('edit'));
+		return $this->edit(Controller::curr()->getRequest());
 	}
 
 
@@ -238,86 +281,66 @@ class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_Item
 			return Controller::curr()->redirectBack();
 		}
 
-
 		$message = sprintf(
 			_t('GridFieldDetailForm.Deleted', 'Deleted %s %s'),
 			$this->record->singular_name(),
-			'"'.htmlspecialchars($this->record->Title, ENT_QUOTES).'"'
+			'"'.Convert::raw2xml($this->record->Title).'"'
 		);
 
-		$form->sessionMessage($message, 'good');
-
-		$controller = Controller::curr();
-		$noActionURL = $controller->removeAction($data['url']);
-		$controller->getRequest()->addHeader('X-Pjax', 'Content'); // Force a content refresh
 		//double check that this deletes all versions
-
 		$clone = clone $record;
 		$clone->deleteFromStage("Stage");
 		$clone->delete();
 		//manually deleting all orphaned _version records
 		DB::query("DELETE FROM \"{$this->baseTable()}_versions\" WHERE \"RecordID\" = '{$record->ID}'");
-		return $controller->redirect($noActionURL, 302); //redirect back to admin section
+		
+		$controller = Controller::curr();
+		$controller->getRequest()->addHeader('X-Pjax', 'Content'); // Force a content refresh
+		return $controller->redirect($this->getBacklink(), 302); //redirect back to admin section
 	}
 
 
-		/**
-	 * Restore the content in the active copy of this SiteTree page to the stage site.
-	 * @return The SiteTree object.
-	 */
-	function doRestoreToStage() {
+	public function doRestoreToStage() {
 		$record = $this->record;
 		// if no record can be found on draft stage (meaning it has been "deleted from draft" before),
 		// create an empty record
-		if(!DB::query("SELECT \"ID\" FROM \"{$this->baseTable()}\" WHERE \"ID\" = $record->ID")->value()) {
+		if(!Versioned::get_by_stage($this->baseTable(), 'Stage')->byID($record->ID)) {
 			$conn = DB::getConn();
 			if(method_exists($conn, 'allowPrimaryKeyEditing')) $conn->allowPrimaryKeyEditing($record->class, true);
 			DB::query("INSERT INTO \"{$this->baseTable()}\" (\"ID\") VALUES ($this->ID)");
 			if(method_exists($conn, 'allowPrimaryKeyEditing')) $conn->allowPrimaryKeyEditing($record->class, false);
 		}
-
+		
 		$oldStage = Versioned::current_stage();
 		Versioned::reading_stage('Stage');
 		$record->forceChange();
 		$record->write();
-
+		
 		$result = DataObject::get_by_id($this->class, $this->ID);
-
+		
 		Versioned::reading_stage($oldStage);
-
+		
 		return $result;
 	}
-
-	/**
-	 * Synonym of {@link doUnpublish}
-	 */
-	function doDeleteFromLive() {
-		return $this->doUnpublish();
-	}
-
-
-
-
-
 
 
 	/**
 	 * Compares current draft with live version,
 	 * and returns TRUE if no draft version of this page exists,
 	 * but the page is still published (after triggering "Delete from draft site" in the CMS).
-	 *
+	 * 
 	 * @return boolean
 	 */
 	function getIsDeletedFromStage() {
 		//if(!$this->record->ID) return true;
 		if($this->isNew()) return false;
-
+		
 		$stageVersion = Versioned::get_versionnumber_by_stage($this->record->class, 'Stage', $this->record->ID);
 
 		// Return true for both completely deleted pages and for pages just deleted from stage.
 		return !($stageVersion);
 	}
-
+	
 	/**
 	 * Return true if this page exists on the live site
 	 */
@@ -329,34 +352,35 @@ class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_Item
 	 * Compares current draft with live version,
 	 * and returns TRUE if these versions differ,
 	 * meaning there have been unpublished changes to the draft site.
-	 *
+	 * 
 	 * @return boolean
 	 */
 	public function getIsModifiedOnStage() {
 		// new unsaved pages could be never be published
 		if($this->isNew()) return false;
-
+		
 		$stageVersion = Versioned::get_versionnumber_by_stage($this->record->class, 'Stage', $this->record->ID);
 		$liveVersion =	Versioned::get_versionnumber_by_stage($this->record->class, 'Live', $this->record->ID);
 
 		return ($stageVersion && $stageVersion != $liveVersion);
 	}
-
+	
 	/**
 	 * Compares current draft with live version,
 	 * and returns true if no live version exists,
 	 * meaning the page was never published.
-	 *
+	 * 
 	 * @return boolean
 	 */
 	public function getIsAddedToStage() {
 		// new unsaved pages could be never be published
 		if($this->isNew()) return false;
-
+		
 		$stageVersion = Versioned::get_versionnumber_by_stage($this->record->class, 'Stage', $this->record->ID);
 		$liveVersion =	Versioned::get_versionnumber_by_stage($this->record->class, 'Live', $this->record->ID);
 
 		return ($stageVersion && !$liveVersion);
 	}
+	
 
 }
