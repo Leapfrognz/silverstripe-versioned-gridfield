@@ -1,5 +1,4 @@
 <?php
-namespace Icecaster;
 /**
  * VersionedGridFieldDetailForm & VersionedGridFieldDetailForm_ItemRequest
  * Allows managing versioned objects through gridfield.
@@ -8,7 +7,7 @@ namespace Icecaster;
  * @author Tim Klein, Dodat Ltd <tim[at]dodat[dot]co[dot]nz>
  */
 
-class VersionedGridFieldDetailForm extends \GridFieldDetailForm {
+class VersionedGridFieldDetailForm extends GridFieldDetailForm {
 
 	public function handleItem($gridField, $request) {
 		$controller = $gridField->getForm()->Controller();
@@ -40,7 +39,7 @@ class VersionedGridFieldDetailForm extends \GridFieldDetailForm {
 
 }
 
-class VersionedGridFieldDetailForm_ItemRequest extends \GridFieldDetailForm_ItemRequest {
+class VersionedGridFieldDetailForm_ItemRequest extends GridFieldDetailForm_ItemRequest {
 
 	private static $allowed_actions = array(
 		'edit',

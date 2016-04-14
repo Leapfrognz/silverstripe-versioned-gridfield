@@ -13,7 +13,7 @@ use Icecaster\VersionedGridFieldDetailForm;
 class VersionedModelAdmin extends \Extension {
 
 	function onBeforeInit() {
-		Versioned::reading_stage('Stage');
+		\Versioned::reading_stage('Stage');
 	}
 
 	function updateEditForm($form) {
@@ -26,7 +26,7 @@ class VersionedModelAdmin extends \Extension {
 					$config = $field->getConfig();
 					$config->removeComponentsByType('GridFieldDeleteAction')
 						->removeComponentsByType('GridFieldDetailForm')
-						->addComponents(new \VersionedGridFieldDetailForm());
+						->addComponents(new VersionedGridFieldDetailForm());
 					$field->setConfig($config);
 				}
 			}
